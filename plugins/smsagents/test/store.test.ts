@@ -33,3 +33,29 @@ test("dedupe keys make retries idempotent", () => {
   assert.equal(second.message.body, "one");
   store.close();
 });
+
+test("hook delivery claims a message once while inbox retains it until acknowledgement", () => {
+  const store = new Store(join(mkdtempSync(join(tmpdir(), "smsagents-")), "test.sqlite"));
+  store.registerAgent("alpha", "Alpha");
+  store.registerAgent("beta", "Beta");
+  store.subscribe("alpha", "t");
+  store.subscribe("beta", "t");
+  store.publish({ senderId: "alpha", topic: "t", body: "once" });
+  assert.equal(store.claimInbox("beta").length, 1);
+  assert.equal(store.claimInbox("beta").length, 0);
+  assert.equal(store.inbox("beta").length, 1);
+  store.close();
+});
+
+test("questions remain pending until a reply references them", () => {
+  const store = new Store(join(mkdtempSync(join(tmpdir(), "smsagents-")), "test.sqlite"));
+  store.registerAgent("alpha", "Alpha");
+  store.registerAgent("beta", "Beta");
+  store.subscribe("alpha", "t");
+  store.subscribe("beta", "t");
+  const question = store.publish({ senderId: "alpha", topic: "t", kind: "question", body: "Ready?" }).message;
+  assert.equal(store.pendingOutboundQuestions("alpha").length, 1);
+  store.publish({ senderId: "beta", topic: "t", kind: "answer", body: "Yes", replyTo: question.id });
+  assert.equal(store.pendingOutboundQuestions("alpha").length, 0);
+  store.close();
+});

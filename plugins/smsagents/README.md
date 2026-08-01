@@ -40,6 +40,8 @@ Set `SMSAGENTS_TOPICS` to a comma-separated list to auto-subscribe new sessions.
 
 The SQLite database defaults to `$XDG_STATE_HOME/smsagents/smsagents.sqlite` or `~/.local/state/smsagents/smsagents.sqlite`, so MCP processes and lifecycle hooks share the same mailbox. Set `SMSAGENTS_DB_PATH` to override it.
 
-## Current boundary
+## Push delivery
 
-Hooks deliver at lifecycle boundaries; they do not wake a session that has already become fully idle. A future optional supervisor can use Codex App Server to resume such sessions.
+SMSAgents checks for messages after every supported tool call, alongside new user prompts, at session start, and before an agent stops. If an agent has sent an unanswered `question`, its Stop hook remains armed for up to five minutes by default. A reply causes the hook process to exit and Codex immediately creates a continuation turn without model polling. Set `SMSAGENTS_LISTEN_SECONDS` to a value from `0` to `300` to tune the window.
+
+A thread that has fully stopped outside an expected-reply window still requires the planned Codex App Server supervisor for unsolicited wake-ups.

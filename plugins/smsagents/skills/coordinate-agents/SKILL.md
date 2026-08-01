@@ -16,3 +16,5 @@ Use SMSAgents as a concise work-coordination channel, not as a transcript mirror
 7. Avoid loops. Do not reply to acknowledgements, `done` messages, or information that requires no action.
 
 When parallel agents edit one worktree, establish file ownership in the topic before editing. One agent should own final integration.
+
+Questions create an expected-reply window. When this agent attempts to stop with an unanswered question, SMSAgents keeps a lightweight hook listener open. A reply wakes the agent without a polling tool or additional model tokens. Use `reply_to` when answering so the sender's listener can resolve the question.

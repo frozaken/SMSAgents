@@ -101,6 +101,34 @@ var Store = class {
     }
     return rows.map(mapMessage);
   }
+  claimInbox(agentId2, options = {}) {
+    this.requireAgent(agentId2);
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`SELECT m.* FROM messages m JOIN deliveries d ON d.message_id=m.id
+        WHERE d.agent_id=? AND d.acked_at IS NULL AND d.delivered_at IS NULL
+        AND (m.expires_at IS NULL OR m.expires_at>?) AND (? IS NULL OR m.topic=?)
+        ORDER BY m.sequence LIMIT ?`).all(agentId2, now, options.topic ?? null, options.topic ?? null, limit);
+      const mark = this.db.prepare("UPDATE deliveries SET delivered_at=? WHERE message_id=? AND agent_id=? AND delivered_at IS NULL");
+      for (const row of rows) mark.run(now, String(row.id), agentId2);
+      this.db.exec("COMMIT");
+      return rows.map(mapMessage);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  pendingOutboundQuestions(agentId2) {
+    this.requireAgent(agentId2);
+    const rows = this.db.prepare(`SELECT q.* FROM messages q
+      WHERE q.sender_id=? AND q.kind='question' AND (q.expires_at IS NULL OR q.expires_at>?)
+      AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id=q.id)
+      AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.reply_to=q.id)
+      ORDER BY q.sequence`).all(agentId2, (/* @__PURE__ */ new Date()).toISOString());
+    return rows.map(mapMessage);
+  }
   ack(agentId2, messageIds) {
     const statement = this.db.prepare("UPDATE deliveries SET acked_at=? WHERE agent_id=? AND message_id=? AND acked_at IS NULL");
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -145,11 +173,20 @@ var store = new Store();
 store.registerAgent(agentId, name, input.session_id, { cwd: input.cwd, agentType: input.agent_type });
 var topics = (process.env.SMSAGENTS_TOPICS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 for (const topic of topics) store.subscribe(agentId, topic);
-var messages = store.inbox(agentId, { limit: 25 });
+var messages = store.claimInbox(agentId, { limit: 25 });
+var isStop = input.hook_event_name === "Stop" || input.hook_event_name === "SubagentStop";
+if (isStop && messages.length === 0 && !input.stop_hook_active && store.pendingOutboundQuestions(agentId).length > 0) {
+  const listenSeconds = Math.max(0, Math.min(Number(process.env.SMSAGENTS_LISTEN_SECONDS ?? 300), 300));
+  const deadline = Date.now() + listenSeconds * 1e3;
+  while (messages.length === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, Math.min(200, deadline - Date.now())));
+    messages = store.claimInbox(agentId, { limit: 25 });
+  }
+}
 store.close();
 var summary = messages.map((m) => `[${m.kind}] ${m.topic} from ${m.senderId} (${m.id}):
 ${m.body}`).join("\n\n");
-if (input.hook_event_name === "Stop" && messages.length && !input.stop_hook_active) {
+if (isStop && messages.length && !input.stop_hook_active) {
   process.stdout.write(JSON.stringify({ decision: "block", reason: `SMSAgents received ${messages.length} unacknowledged message(s). Handle them before stopping. Your agent_id is ${agentId}.
 
 ${summary}
@@ -163,5 +200,11 @@ ${summary}
 Handle and acknowledge these messages.` } }));
 } else if (input.hook_event_name === "SessionStart" || input.hook_event_name === "SubagentStart") {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: `Your SMSAgents agent_id is ${agentId}. Join a scoped topic before coordinating with other sessions.` } }));
+} else if (messages.length && (input.hook_event_name === "PostToolUse" || input.hook_event_name === "UserPromptSubmit")) {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: `SMSAgents delivered ${messages.length} message(s) to agent_id ${agentId}:
+
+${summary}
+
+Handle and acknowledge these messages.` } }));
 }
 //# sourceMappingURL=hook.js.map

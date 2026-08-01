@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Store } from "../src/store.js";
 
 test("session hook emits a stable agent identity", () => {
   const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
@@ -14,4 +16,58 @@ test("session hook emits a stable agent identity", () => {
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.match(output.hookSpecificOutput.additionalContext, /SMSAgents agent_id|SMSAgents agent_id is|Your SMSAgents agent_id/);
+});
+
+test("PostToolUse injects a newly claimed message exactly once", () => {
+  const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
+  const dbPath = join(data, "test.sqlite");
+  const sessionId = "receiver-session";
+  const receiverId = `codex-${createHash("sha256").update(sessionId).digest("hex").slice(0, 12)}`;
+  const store = new Store(dbPath);
+  store.registerAgent("sender", "Sender");
+  store.registerAgent(receiverId, "Receiver", sessionId);
+  store.subscribe("sender", "t");
+  store.subscribe(receiverId, "t");
+  store.publish({ senderId: "sender", topic: "t", body: "new finding" });
+  store.close();
+  const input = JSON.stringify({ session_id: sessionId, cwd: "/tmp/project", hook_event_name: "PostToolUse" });
+  const env = { ...process.env, SMSAGENTS_DB_PATH: dbPath };
+  const first = spawnSync(process.execPath, ["dist/hook.js"], { input, encoding: "utf8", env });
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(JSON.parse(first.stdout).hookSpecificOutput.additionalContext, /new finding/);
+  const second = spawnSync(process.execPath, ["dist/hook.js"], { input, encoding: "utf8", env });
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(second.stdout, "");
+});
+
+test("Stop listener wakes when an expected reply arrives", async () => {
+  const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
+  const dbPath = join(data, "test.sqlite");
+  const sessionId = "waiting-session";
+  const waitingId = `codex-${createHash("sha256").update(sessionId).digest("hex").slice(0, 12)}`;
+  const store = new Store(dbPath);
+  store.registerAgent(waitingId, "Waiting", sessionId);
+  store.registerAgent("responder", "Responder");
+  store.subscribe(waitingId, "t");
+  store.subscribe("responder", "t");
+  const question = store.publish({ senderId: waitingId, topic: "t", kind: "question", body: "Ready?" }).message;
+
+  const child = spawn(process.execPath, ["dist/hook.js"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, SMSAGENTS_DB_PATH: dbPath, SMSAGENTS_LISTEN_SECONDS: "2" }
+  });
+  child.stdin.end(JSON.stringify({ session_id: sessionId, cwd: "/tmp/project", hook_event_name: "Stop", stop_hook_active: false }));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  store.publish({ senderId: "responder", topic: "t", kind: "answer", body: "Yes", replyTo: question.id });
+  store.close();
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+  const code = await new Promise<number | null>(resolve => child.on("close", resolve));
+  assert.equal(code, 0, stderr);
+  const output = JSON.parse(stdout);
+  assert.equal(output.decision, "block");
+  assert.match(output.reason, /Yes/);
 });

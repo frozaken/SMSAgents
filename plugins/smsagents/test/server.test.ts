@@ -28,6 +28,7 @@ test("MCP server supports a two-agent exchange", async () => {
     const inbox = await client.callTool({ name: "check_inbox", arguments: { agent_id: "beta" } });
     const result = inbox.structuredContent as { messages: Array<{ body: string }> };
     assert.equal(result.messages[0]?.body, "Ready?");
+
   } finally {
     await client.close();
   }

@@ -125,6 +125,37 @@ export class Store {
     return rows.map(mapMessage);
   }
 
+  claimInbox(agentId: string, options: { topic?: string; limit?: number } = {}): Message[] {
+    this.requireAgent(agentId);
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const now = new Date().toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`SELECT m.* FROM messages m JOIN deliveries d ON d.message_id=m.id
+        WHERE d.agent_id=? AND d.acked_at IS NULL AND d.delivered_at IS NULL
+        AND (m.expires_at IS NULL OR m.expires_at>?) AND (? IS NULL OR m.topic=?)
+        ORDER BY m.sequence LIMIT ?`)
+        .all(agentId, now, options.topic ?? null, options.topic ?? null, limit) as Record<string, unknown>[];
+      const mark = this.db.prepare("UPDATE deliveries SET delivered_at=? WHERE message_id=? AND agent_id=? AND delivered_at IS NULL");
+      for (const row of rows) mark.run(now, String(row.id), agentId);
+      this.db.exec("COMMIT");
+      return rows.map(mapMessage);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  pendingOutboundQuestions(agentId: string): Message[] {
+    this.requireAgent(agentId);
+    const rows = this.db.prepare(`SELECT q.* FROM messages q
+      WHERE q.sender_id=? AND q.kind='question' AND (q.expires_at IS NULL OR q.expires_at>?)
+      AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id=q.id)
+      AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.reply_to=q.id)
+      ORDER BY q.sequence`).all(agentId, new Date().toISOString()) as Record<string, unknown>[];
+    return rows.map(mapMessage);
+  }
+
   ack(agentId: string, messageIds: string[]): number {
     const statement = this.db.prepare("UPDATE deliveries SET acked_at=? WHERE agent_id=? AND message_id=? AND acked_at IS NULL");
     const now = new Date().toISOString();
