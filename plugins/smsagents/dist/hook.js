@@ -162,19 +162,23 @@ function mapMessage(row) {
 }
 
 // src/hook.ts
+var CONTEXT_LIMIT = 4e3;
+var clamp = (text) => text.length <= CONTEXT_LIMIT ? text : `${text.slice(0, CONTEXT_LIMIT - 60)}
+\u2026[truncated; use check_inbox for the full messages]`;
 var raw = "";
 for await (const chunk of process.stdin) raw += chunk;
 var input = raw.trim() ? JSON.parse(raw) : {};
 var session = input.agent_id ?? input.session_id;
 if (!session) process.exit(0);
-var agentId = `codex-${createHash("sha256").update(session).digest("hex").slice(0, 12)}`;
+var runtime = process.env.CLAUDECODE ? "claude" : "codex";
+var agentId = `${runtime}-${createHash("sha256").update(session).digest("hex").slice(0, 12)}`;
 var name = input.agent_type ? `${input.agent_type}-${agentId.slice(-4)}` : `agent-${agentId.slice(-4)}`;
 var store = new Store();
-store.registerAgent(agentId, name, input.session_id, { cwd: input.cwd, agentType: input.agent_type });
+store.registerAgent(agentId, name, input.session_id, { cwd: input.cwd, agentType: input.agent_type, runtime });
 var topics = (process.env.SMSAGENTS_TOPICS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 for (const topic of topics) store.subscribe(agentId, topic);
-var messages = store.claimInbox(agentId, { limit: 25 });
 var isStop = input.hook_event_name === "Stop" || input.hook_event_name === "SubagentStop";
+var messages = isStop && input.stop_hook_active ? [] : store.claimInbox(agentId, { limit: 25 });
 if (isStop && messages.length === 0 && !input.stop_hook_active && store.pendingOutboundQuestions(agentId).length > 0) {
   const listenSeconds = Math.max(0, Math.min(Number(process.env.SMSAGENTS_LISTEN_SECONDS ?? 300), 300));
   const deadline = Date.now() + listenSeconds * 1e3;
@@ -187,24 +191,24 @@ store.close();
 var summary = messages.map((m) => `[${m.kind}] ${m.topic} from ${m.senderId} (${m.id}):
 ${m.body}`).join("\n\n");
 if (isStop && messages.length && !input.stop_hook_active) {
-  process.stdout.write(JSON.stringify({ decision: "block", reason: `SMSAgents received ${messages.length} unacknowledged message(s). Handle them before stopping. Your agent_id is ${agentId}.
+  process.stdout.write(JSON.stringify({ decision: "block", reason: clamp(`SMSAgents received ${messages.length} unacknowledged message(s). Handle them before stopping. Your agent_id is ${agentId}.
 
 ${summary}
 
-After handling them, call ack_messages.` }));
+After handling them, call ack_messages.`) }));
 } else if ((input.hook_event_name === "SessionStart" || input.hook_event_name === "SubagentStart") && messages.length) {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: `SMSAgents agent_id: ${agentId}. Unacknowledged messages:
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: clamp(`SMSAgents agent_id: ${agentId}. Unacknowledged messages:
 
 ${summary}
 
-Handle and acknowledge these messages.` } }));
+Handle and acknowledge these messages.`) } }));
 } else if (input.hook_event_name === "SessionStart" || input.hook_event_name === "SubagentStart") {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: `Your SMSAgents agent_id is ${agentId}. Join a scoped topic before coordinating with other sessions.` } }));
 } else if (messages.length && (input.hook_event_name === "PostToolUse" || input.hook_event_name === "UserPromptSubmit")) {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: `SMSAgents delivered ${messages.length} message(s) to agent_id ${agentId}:
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: clamp(`SMSAgents delivered ${messages.length} message(s) to agent_id ${agentId}:
 
 ${summary}
 
-Handle and acknowledge these messages.` } }));
+Handle and acknowledge these messages.`) } }));
 }
 //# sourceMappingURL=hook.js.map

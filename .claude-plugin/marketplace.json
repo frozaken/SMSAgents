@@ -1,0 +1,19 @@
+{
+  "name": "smsagents",
+  "description": "Local topic-based messaging for coordinating concurrent AI agent sessions.",
+  "owner": {
+    "name": "Frozaken"
+  },
+  "plugins": [
+    {
+      "name": "smsagents",
+      "source": "./plugins/smsagents",
+      "description": "Durable topic mailbox with an MCP server and lifecycle delivery hooks for agent-to-agent coordination.",
+      "category": "productivity",
+      "author": {
+        "name": "Frozaken"
+      },
+      "license": "MIT"
+    }
+  ]
+}

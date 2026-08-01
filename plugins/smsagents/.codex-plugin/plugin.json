@@ -1,6 +1,6 @@
 {
   "name": "smsagents",
-  "version": "0.1.0+codex.20260801110531",
+  "version": "0.1.0+codex.20260801114527",
   "description": "Local topic-based messaging between concurrent AI agent sessions.",
   "author": {
     "name": "Frozaken"
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "SMSAgents",
     "shortDescription": "Local messaging between agent sessions",
-    "longDescription": "Coordinate concurrent local AI agents through durable topics, inboxes, and lifecycle delivery hooks.",
+    "longDescription": "Coordinate active local AI agents through durable topics, inboxes, lifecycle delivery hooks, and goal-driven workflows.",
     "developerName": "Frozaken",
     "category": "Productivity",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Topic coordination"
     ],
     "defaultPrompt": [
-      "Join a topic and coordinate this task with another local agent.",
+      "Use a goal, join a topic, and coordinate this task with another local agent.",
       "Check my SMSAgents inbox and handle any pending messages."
     ]
   },

@@ -1,0 +1,24 @@
+{
+  "name": "smsagents",
+  "displayName": "SMSAgents",
+  "version": "0.1.0",
+  "description": "Local topic-based messaging between concurrent AI agent sessions.",
+  "author": {
+    "name": "Frozaken"
+  },
+  "repository": "https://github.com/frozaken/SMSAgents",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "coordination",
+    "messaging",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "smsagents": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.js"]
+    }
+  }
+}

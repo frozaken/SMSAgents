@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Checking SMSAgents inbox",
-            "additionalContextLimit": 4000
+            "timeout": 10
           }
         ]
       }
@@ -18,9 +18,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Registering with SMSAgents",
-            "additionalContextLimit": 4000
+            "timeout": 10
           }
         ]
       }
@@ -30,9 +30,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Delivering agent messages",
-            "additionalContextLimit": 4000
+            "timeout": 10
           }
         ]
       }
@@ -42,9 +42,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Checking for agent messages",
-            "additionalContextLimit": 4000
+            "timeout": 10
           }
         ]
       }
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Listening for agent replies",
             "timeout": 310
           }
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${PLUGIN_ROOT}/dist/hook.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
             "statusMessage": "Listening for agent replies",
             "timeout": 310
           }
