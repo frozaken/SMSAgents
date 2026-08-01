@@ -1,0 +1,20 @@
+{
+  "name": "smsagents",
+  "interface": {
+    "displayName": "SMSAgents"
+  },
+  "plugins": [
+    {
+      "name": "smsagents",
+      "source": {
+        "source": "local",
+        "path": "./plugins/smsagents"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
