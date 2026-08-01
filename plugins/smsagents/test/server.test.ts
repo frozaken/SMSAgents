@@ -10,7 +10,7 @@ test("MCP server supports a two-agent exchange", async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [join(process.cwd(), "dist", "server.js")],
-    env: { ...process.env, PLUGIN_DATA: mkdtempSync(join(tmpdir(), "smsagents-mcp-")) } as Record<string, string>
+    env: { ...process.env, SMSAGENTS_DB_PATH: join(mkdtempSync(join(tmpdir(), "smsagents-mcp-")), "test.sqlite") } as Record<string, string>
   });
   const client = new Client({ name: "smsagents-test", version: "0.1.0" });
   await client.connect(transport);

@@ -1,13 +1,18 @@
 {
   "name": "smsagents",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260801084901",
   "description": "Local topic-based messaging between concurrent AI agent sessions.",
   "author": {
     "name": "Frozaken"
   },
   "repository": "https://github.com/frozaken/SMSAgents",
   "license": "MIT",
-  "keywords": ["agents", "coordination", "messaging", "mcp"],
+  "keywords": [
+    "agents",
+    "coordination",
+    "messaging",
+    "mcp"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "SMSAgents",
@@ -15,7 +20,10 @@
     "longDescription": "Coordinate concurrent local AI agents through durable topics, inboxes, and lifecycle delivery hooks.",
     "developerName": "Frozaken",
     "category": "Productivity",
-    "capabilities": ["Local messaging", "Topic coordination"],
+    "capabilities": [
+      "Local messaging",
+      "Topic coordination"
+    ],
     "defaultPrompt": [
       "Join a topic and coordinate this task with another local agent.",
       "Check my SMSAgents inbox and handle any pending messages."

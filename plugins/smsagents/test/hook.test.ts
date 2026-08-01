@@ -9,7 +9,7 @@ test("session hook emits a stable agent identity", () => {
   const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
   const result = spawnSync(process.execPath, ["dist/hook.js"], {
     input: JSON.stringify({ session_id: "session-123", cwd: "/tmp/project", hook_event_name: "SessionStart" }),
-    encoding: "utf8", env: { ...process.env, PLUGIN_DATA: data }
+    encoding: "utf8", env: { ...process.env, SMSAGENTS_DB_PATH: join(data, "test.sqlite") }
   });
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);

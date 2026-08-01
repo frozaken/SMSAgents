@@ -38,7 +38,7 @@ The MCP server is declared in `.mcp.json`. Lifecycle hooks register sessions and
 
 Set `SMSAGENTS_TOPICS` to a comma-separated list to auto-subscribe new sessions. Otherwise, agents join topics explicitly through MCP.
 
-The SQLite database lives in the host-provided `PLUGIN_DATA` directory. Outside a plugin host it defaults to `$XDG_STATE_HOME/smsagents/smsagents.sqlite` or `~/.local/state/smsagents/smsagents.sqlite`.
+The SQLite database defaults to `$XDG_STATE_HOME/smsagents/smsagents.sqlite` or `~/.local/state/smsagents/smsagents.sqlite`, so MCP processes and lifecycle hooks share the same mailbox. Set `SMSAGENTS_DB_PATH` to override it.
 
 ## Current boundary
 

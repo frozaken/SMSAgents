@@ -18,7 +18,7 @@ await build({
 });
 
 await build({
-  entryPoints: ["test/store.test.ts", "test/hook.test.ts", "test/server.test.ts"],
+  entryPoints: ["test/store.test.ts", "test/hook.test.ts", "test/server.test.ts", "test/package.test.ts"],
   outdir: "dist-test",
   bundle: true,
   packages: "external",

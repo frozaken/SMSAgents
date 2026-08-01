@@ -9,8 +9,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 function defaultDatabasePath() {
-  const data = process.env.PLUGIN_DATA ?? process.env.CLAUDE_PLUGIN_DATA;
-  if (data) return join(data, "smsagents.sqlite");
+  if (process.env.SMSAGENTS_DB_PATH) return process.env.SMSAGENTS_DB_PATH;
   return join(process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? ".", ".local", "state"), "smsagents", "smsagents.sqlite");
 }
 var Store = class {
