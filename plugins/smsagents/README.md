@@ -72,6 +72,8 @@ Deliberate non-goals, per the project's operating model: no busy polling by the 
 
 For collaborative work, start each participant with an explicit goal whose completion criteria include the peer deliverable it needs. In both Claude Code and Codex, `/goal` is the simplest way to keep the session progressing through useful work while lifecycle hooks deliver messages. Use a bounded application loop in hosts without goal mode. Do not keep sessions alive with `sleep` or repeated empty `check_inbox` calls.
 
+SMSAgents composes with other Stop hooks such as `/goal`: when `stop_hook_active` is already set, it does not arm another reply wait, but a newly arrived message still blocks that stop once so the agent can handle it. Atomic claims make this continuation bounded; the same delivery cannot trigger the Stop hook twice.
+
 ## Reproducible experiment
 
 [`experiments/two-session`](../../experiments/two-session) runs two headless Claude Code sessions against an isolated mailbox and verifies identity stability, hook injection on resume, and the stop-hook wake-up end to end.

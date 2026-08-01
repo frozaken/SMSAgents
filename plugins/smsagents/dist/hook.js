@@ -178,7 +178,7 @@ store.registerAgent(agentId, name, input.session_id, { cwd: input.cwd, agentType
 var topics = (process.env.SMSAGENTS_TOPICS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 for (const topic of topics) store.subscribe(agentId, topic);
 var isStop = input.hook_event_name === "Stop" || input.hook_event_name === "SubagentStop";
-var messages = isStop && input.stop_hook_active ? [] : store.claimInbox(agentId, { limit: 25 });
+var messages = store.claimInbox(agentId, { limit: 25 });
 if (isStop && messages.length === 0 && !input.stop_hook_active && store.pendingOutboundQuestions(agentId).length > 0) {
   const listenSeconds = Math.max(0, Math.min(Number(process.env.SMSAGENTS_LISTEN_SECONDS ?? 300), 300));
   const deadline = Date.now() + listenSeconds * 1e3;
@@ -190,7 +190,7 @@ if (isStop && messages.length === 0 && !input.stop_hook_active && store.pendingO
 store.close();
 var summary = messages.map((m) => `[${m.kind}] ${m.topic} from ${m.senderId} (${m.id}):
 ${m.body}`).join("\n\n");
-if (isStop && messages.length && !input.stop_hook_active) {
+if (isStop && messages.length) {
   process.stdout.write(JSON.stringify({ decision: "block", reason: clamp(`SMSAgents received ${messages.length} unacknowledged message(s). Handle them before stopping. Your agent_id is ${agentId}.
 
 ${summary}

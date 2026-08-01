@@ -76,30 +76,58 @@ test("oversized deliveries are clamped below the context limit", () => {
   assert.match(context, /truncated; use check_inbox/);
 });
 
-test("an active Stop guard leaves fresh messages unclaimed", () => {
-  const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
-  const dbPath = join(data, "test.sqlite");
-  const sessionId = "active-stop-session";
-  const receiverId = identity("claude", sessionId);
-  const store = new Store(dbPath);
-  store.registerAgent("sender", "Sender");
-  store.registerAgent(receiverId, "Receiver", sessionId);
-  store.subscribe("sender", "t");
-  store.subscribe(receiverId, "t");
-  store.publish({ senderId: "sender", topic: "t", body: "deliver me later" });
-  store.close();
+for (const runtime of ["claude", "codex"] as const) {
+  test(`${runtime} active Stop guard still continues for fresh messages`, () => {
+    const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
+    const dbPath = join(data, "test.sqlite");
+    const sessionId = `${runtime}-active-stop-session`;
+    const receiverId = identity(runtime, sessionId);
+    const store = new Store(dbPath);
+    store.registerAgent("sender", "Sender");
+    store.registerAgent(receiverId, "Receiver", sessionId);
+    store.subscribe("sender", "t");
+    store.subscribe(receiverId, "t");
+    store.publish({ senderId: "sender", topic: "t", body: "deliver me later" });
+    store.close();
 
-  const result = spawnSync(process.execPath, ["dist/hook.js"], {
-    input: JSON.stringify({ session_id: sessionId, hook_event_name: "Stop", stop_hook_active: true }),
-    encoding: "utf8", env: runtimeEnv("claude", dbPath)
+    const result = spawnSync(process.execPath, ["dist/hook.js"], {
+      input: JSON.stringify({ session_id: sessionId, hook_event_name: "Stop", stop_hook_active: true }),
+      encoding: "utf8", env: runtimeEnv(runtime, dbPath)
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.decision, "block");
+    assert.match(output.reason, /deliver me later/);
+
+    const reopened = new Store(dbPath);
+    assert.equal(reopened.claimInbox(receiverId).length, 0);
+    assert.equal(reopened.inbox(receiverId)[0]?.body, "deliver me later");
+    reopened.close();
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "");
 
-  const reopened = new Store(dbPath);
-  assert.equal(reopened.claimInbox(receiverId)[0]?.body, "deliver me later");
-  reopened.close();
-});
+  test(`${runtime} active Stop guard does not re-arm an outbound-question wait`, () => {
+    const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
+    const dbPath = join(data, "test.sqlite");
+    const sessionId = `${runtime}-active-wait-session`;
+    const waitingId = identity(runtime, sessionId);
+    const store = new Store(dbPath);
+    store.registerAgent(waitingId, "Waiting", sessionId);
+    store.registerAgent("responder", "Responder");
+    store.subscribe(waitingId, "t");
+    store.subscribe("responder", "t");
+    store.publish({ senderId: waitingId, topic: "t", kind: "question", body: "Ready?" });
+    store.close();
+
+    const started = Date.now();
+    const result = spawnSync(process.execPath, ["dist/hook.js"], {
+      input: JSON.stringify({ session_id: sessionId, hook_event_name: "Stop", stop_hook_active: true }),
+      encoding: "utf8", env: { ...runtimeEnv(runtime, dbPath), SMSAGENTS_LISTEN_SECONDS: "2" }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.ok(Date.now() - started < 1000, "active Stop guard unexpectedly re-armed the wait");
+  });
+}
 
 test("Stop listener wakes when an expected reply arrives", async () => {
   const data = mkdtempSync(join(tmpdir(), "smsagents-hook-"));
