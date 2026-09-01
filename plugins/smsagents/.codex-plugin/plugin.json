@@ -1,6 +1,6 @@
 {
   "name": "smsagents",
-  "version": "0.1.0+codex.20260801190710",
+  "version": "0.1.0+codex.20260901114327",
   "description": "Local topic-based messaging between concurrent AI agent sessions.",
   "author": {
     "name": "Frozaken"

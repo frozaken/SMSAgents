@@ -21176,13 +21176,14 @@ var Store = class {
       );
       CREATE TABLE IF NOT EXISTS subscriptions (
         agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-        topic TEXT NOT NULL, created_at TEXT NOT NULL,
+        topic TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL,
         PRIMARY KEY (agent_id, topic)
       );
       CREATE TABLE IF NOT EXISTS messages (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
         topic TEXT NOT NULL, sender_id TEXT NOT NULL REFERENCES agents(id),
         kind TEXT NOT NULL, body TEXT NOT NULL, reply_to TEXT,
+        target_scope TEXT, target_agent_id TEXT,
         dedupe_key TEXT, created_at TEXT NOT NULL, expires_at TEXT,
         UNIQUE(sender_id, topic, dedupe_key)
       );
@@ -21195,6 +21196,9 @@ var Store = class {
       CREATE INDEX IF NOT EXISTS idx_messages_topic_sequence ON messages(topic, sequence);
       CREATE INDEX IF NOT EXISTS idx_deliveries_agent_ack ON deliveries(agent_id, acked_at);
     `);
+    this.addColumnIfMissing("subscriptions", "scopes", "TEXT NOT NULL DEFAULT '[]'");
+    this.addColumnIfMissing("messages", "target_scope", "TEXT");
+    this.addColumnIfMissing("messages", "target_agent_id", "TEXT");
   }
   registerAgent(id, name, sessionId, metadata = {}) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -21204,21 +21208,31 @@ var Store = class {
   setOnline(id) {
     this.db.prepare("UPDATE agents SET last_seen_at=? WHERE id=?").run((/* @__PURE__ */ new Date()).toISOString(), id);
   }
-  subscribe(agentId, topic) {
+  subscribe(agentId, topic, scopes) {
     this.requireAgent(agentId);
-    this.db.prepare("INSERT OR IGNORE INTO subscriptions(agent_id,topic,created_at) VALUES(?,?,?)").run(agentId, topic, (/* @__PURE__ */ new Date()).toISOString());
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    if (scopes === void 0) {
+      this.db.prepare("INSERT OR IGNORE INTO subscriptions(agent_id,topic,created_at) VALUES(?,?,?)").run(agentId, topic, now);
+      return;
+    }
+    const normalized = [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))];
+    this.db.prepare(`INSERT INTO subscriptions(agent_id,topic,scopes,created_at) VALUES(?,?,?,?)
+      ON CONFLICT(agent_id,topic) DO UPDATE SET scopes=excluded.scopes`).run(agentId, topic, JSON.stringify(normalized), now);
   }
   unsubscribe(agentId, topic) {
     return this.db.prepare("DELETE FROM subscriptions WHERE agent_id=? AND topic=?").run(agentId, topic).changes > 0;
   }
   publish(input) {
     this.requireAgent(input.senderId);
+    const targetScope = input.targetScope?.trim();
+    if (input.targetScope !== void 0 && !targetScope) throw new Error("targetScope cannot be empty.");
+    if (targetScope && input.targetAgentId) throw new Error("Choose either targetScope or targetAgentId, not both.");
     const now = /* @__PURE__ */ new Date();
     const expiresAt = input.ttlSeconds ? new Date(now.getTime() + input.ttlSeconds * 1e3).toISOString() : null;
     const id = `msg_${randomUUID()}`;
     let duplicate = false;
     try {
-      this.db.prepare("INSERT INTO messages(id,topic,sender_id,kind,body,reply_to,dedupe_key,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)").run(id, input.topic, input.senderId, input.kind ?? "message", input.body, input.replyTo ?? null, input.dedupeKey ?? null, now.toISOString(), expiresAt);
+      this.db.prepare("INSERT INTO messages(id,topic,sender_id,kind,body,reply_to,target_scope,target_agent_id,dedupe_key,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id, input.topic, input.senderId, input.kind ?? "message", input.body, input.replyTo ?? null, targetScope ?? null, input.targetAgentId ?? null, input.dedupeKey ?? null, now.toISOString(), expiresAt);
     } catch (error2) {
       if (!input.dedupeKey || !String(error2).includes("UNIQUE")) throw error2;
       duplicate = true;
@@ -21227,8 +21241,17 @@ var Store = class {
     if (!row) throw new Error("Unable to load published message");
     const message = mapMessage(row);
     if (!duplicate) {
-      this.db.prepare(`INSERT OR IGNORE INTO deliveries(message_id,agent_id)
-        SELECT ?, agent_id FROM subscriptions WHERE topic=? AND agent_id<>?`).run(message.id, input.topic, input.senderId);
+      if (input.targetAgentId) {
+        this.db.prepare(`INSERT OR IGNORE INTO deliveries(message_id,agent_id)
+          SELECT ?, agent_id FROM subscriptions WHERE topic=? AND agent_id=? AND agent_id<>?`).run(message.id, input.topic, input.targetAgentId, input.senderId);
+      } else if (targetScope) {
+        this.db.prepare(`INSERT OR IGNORE INTO deliveries(message_id,agent_id)
+          SELECT ?, s.agent_id FROM subscriptions s, json_each(s.scopes)
+          WHERE s.topic=? AND json_each.value=? AND s.agent_id<>?`).run(message.id, input.topic, targetScope, input.senderId);
+      } else {
+        this.db.prepare(`INSERT OR IGNORE INTO deliveries(message_id,agent_id)
+          SELECT ?, agent_id FROM subscriptions WHERE topic=? AND agent_id<>?`).run(message.id, input.topic, input.senderId);
+      }
     }
     const recipients = Number(this.db.prepare("SELECT count(*) count FROM deliveries WHERE message_id=?").get(message.id).count);
     return { message, duplicate, recipients };
@@ -21282,12 +21305,23 @@ var Store = class {
     return count;
   }
   status(topic) {
-    const subscribers = this.db.prepare(`SELECT a.id,a.name,a.last_seen_at FROM agents a JOIN subscriptions s ON s.agent_id=a.id
+    const subscribers = this.db.prepare(`SELECT a.id,a.name,a.last_seen_at,s.scopes FROM agents a JOIN subscriptions s ON s.agent_id=a.id
       WHERE s.topic=? ORDER BY a.name`).all(topic);
+    const activeScopes = this.db.prepare(`SELECT json_each.value scope, count(*) agent_count FROM subscriptions s, json_each(s.scopes)
+      WHERE s.topic=? GROUP BY json_each.value ORDER BY json_each.value`).all(topic);
     const messageCount = Number(this.db.prepare("SELECT count(*) count FROM messages WHERE topic=?").get(topic).count);
     const pendingCount = Number(this.db.prepare(`SELECT count(*) count FROM deliveries d JOIN messages m ON m.id=d.message_id
       WHERE m.topic=? AND d.acked_at IS NULL`).get(topic).count);
-    return { subscribers: subscribers.map((x) => ({ id: x.id, name: x.name, lastSeenAt: x.last_seen_at })), messageCount, pendingCount };
+    return {
+      subscribers: subscribers.map((x) => ({ id: x.id, name: x.name, scopes: JSON.parse(x.scopes), lastSeenAt: x.last_seen_at })),
+      activeScopes: activeScopes.map((x) => ({ scope: x.scope, agentCount: Number(x.agent_count) })),
+      messageCount,
+      pendingCount
+    };
+  }
+  addColumnIfMissing(table, column, definition) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((item) => item.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
   requireAgent(id) {
     if (!this.db.prepare("SELECT 1 FROM agents WHERE id=?").get(id)) throw new Error(`Unknown agent: ${id}. Call register_agent first.`);
@@ -21301,6 +21335,8 @@ function mapMessage(row) {
     kind: String(row.kind),
     body: String(row.body),
     replyTo: row.reply_to ? String(row.reply_to) : null,
+    targetScope: row.target_scope ? String(row.target_scope) : null,
+    targetAgentId: row.target_agent_id ? String(row.target_agent_id) : null,
     createdAt: String(row.created_at),
     expiresAt: row.expires_at ? String(row.expires_at) : null
   };
@@ -21310,7 +21346,7 @@ function mapMessage(row) {
 var store = new Store();
 var server = new McpServer(
   { name: "smsagents", version: "0.1.0" },
-  { instructions: "Use SMSAgents for concise coordination between local agent sessions. Register once, join a scoped topic, check the inbox at natural boundaries, acknowledge handled messages, and avoid replying to messages that do not require action." }
+  { instructions: "Use SMSAgents for concise coordination between local agent sessions. Register once, join a scoped topic with responsibility scopes, check the inbox at natural boundaries, and acknowledge handled messages. Prefer scope or direct targeting. Broadcasting is noisy and should be reserved for cross-functional direction changes, topic-wide decisions, or shared incidents such as outages. Avoid replying to messages that do not require action." }
 );
 var ok = (data) => ({ structuredContent: data, content: [{ type: "text", text: JSON.stringify(data) }] });
 server.registerTool("register_agent", {
@@ -21323,11 +21359,11 @@ server.registerTool("register_agent", {
 });
 server.registerTool("join_topic", {
   title: "Join topic",
-  description: "Subscribe an agent to future messages on a scoped coordination topic.",
-  inputSchema: { agent_id: external_exports.string(), topic: external_exports.string().min(1) }
-}, async ({ agent_id, topic }) => {
-  store.subscribe(agent_id, topic);
-  return ok({ subscribed: true, agentId: agent_id, topic });
+  description: "Subscribe an agent to future topic messages, optionally advertising responsibility scopes. Returns all active subscribers and scopes for discovery.",
+  inputSchema: { agent_id: external_exports.string(), topic: external_exports.string().min(1), scopes: external_exports.array(external_exports.string().min(1).max(100)).max(20).optional() }
+}, async ({ agent_id, topic, scopes }) => {
+  store.subscribe(agent_id, topic, scopes);
+  return ok({ subscribed: true, agentId: agent_id, topic, ...store.status(topic) });
 });
 server.registerTool("leave_topic", {
   title: "Leave topic",
@@ -21336,7 +21372,7 @@ server.registerTool("leave_topic", {
 }, async ({ agent_id, topic }) => ok({ unsubscribed: store.unsubscribe(agent_id, topic), agentId: agent_id, topic }));
 server.registerTool("send_message", {
   title: "Send message",
-  description: "Send a concise question, finding, decision, blocker, or completion notice to all other subscribers of a topic.",
+  description: "Send to one advertised responsibility scope or one agent. Omit a target to broadcast only for cross-functional direction changes, topic-wide decisions, or shared incidents such as outages; broadcasts are noisy. Targets only receive messages when subscribed to the topic.",
   inputSchema: {
     agent_id: external_exports.string(),
     topic: external_exports.string().min(1),
@@ -21344,9 +21380,14 @@ server.registerTool("send_message", {
     kind: external_exports.enum(["message", "question", "answer", "proposal", "decision", "blocker", "done"]).optional(),
     reply_to: external_exports.string().optional(),
     dedupe_key: external_exports.string().optional(),
-    ttl_seconds: external_exports.number().int().positive().max(604800).optional()
+    ttl_seconds: external_exports.number().int().positive().max(604800).optional(),
+    target_scope: external_exports.string().trim().min(1).max(100).optional(),
+    target_agent_id: external_exports.string().min(1).optional()
   }
-}, async ({ agent_id, topic, body, kind, reply_to, dedupe_key, ttl_seconds }) => ok(store.publish({ senderId: agent_id, topic, body, kind, replyTo: reply_to, dedupeKey: dedupe_key, ttlSeconds: ttl_seconds })));
+}, async ({ agent_id, topic, body, kind, reply_to, dedupe_key, ttl_seconds, target_scope, target_agent_id }) => {
+  if (target_scope && target_agent_id) throw new Error("Choose either target_scope or target_agent_id, not both.");
+  return ok(store.publish({ senderId: agent_id, topic, body, kind, replyTo: reply_to, dedupeKey: dedupe_key, ttlSeconds: ttl_seconds, targetScope: target_scope, targetAgentId: target_agent_id }));
+});
 server.registerTool("check_inbox", {
   title: "Check inbox",
   description: "Read unacknowledged messages for an agent, optionally restricted to one topic.",
@@ -21360,7 +21401,7 @@ server.registerTool("ack_messages", {
 }, async ({ agent_id, message_ids }) => ok({ acknowledged: store.ack(agent_id, message_ids) }));
 server.registerTool("topic_status", {
   title: "Topic status",
-  description: "Inspect topic subscribers and aggregate message counts.",
+  description: "Inspect topic subscribers, their advertised responsibility scopes, active scope counts, and aggregate message counts.",
   inputSchema: { topic: external_exports.string().min(1) },
   annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false }
 }, async ({ topic }) => ok(store.status(topic)));

@@ -37,7 +37,10 @@ if (isStop && messages.length === 0 && !input.stop_hook_active && store.pendingO
 }
 store.close();
 
-const summary = messages.map(m => `[${m.kind}] ${m.topic} from ${m.senderId} (${m.id}):\n${m.body}`).join("\n\n");
+const summary = messages.map(m => {
+  const target = m.targetScope ? ` to scope:${m.targetScope}` : m.targetAgentId ? ` directly to ${m.targetAgentId}` : "";
+  return `[${m.kind}] ${m.topic}${target} from ${m.senderId} (${m.id}):\n${m.body}`;
+}).join("\n\n");
 if (isStop && messages.length) {
   process.stdout.write(JSON.stringify({ decision: "block", reason: clamp(`SMSAgents received ${messages.length} unacknowledged message(s). Handle them before stopping. Your agent_id is ${agentId}.\n\n${summary}\n\nAfter handling them, call ack_messages.`) }));
 } else if ((input.hook_event_name === "SessionStart" || input.hook_event_name === "SubagentStart") && messages.length) {

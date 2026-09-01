@@ -21,13 +21,19 @@ test("MCP server supports a two-agent exchange", async () => {
     ]);
     for (const id of ["alpha", "beta"]) {
       await client.callTool({ name: "register_agent", arguments: { agent_id: id, name: id } });
-      await client.callTool({ name: "join_topic", arguments: { agent_id: id, topic: "repo:e2e" } });
+      const joined = await client.callTool({ name: "join_topic", arguments: { agent_id: id, topic: "repo:e2e", scopes: id === "beta" ? ["platform"] : ["coordination"] } });
+      const membership = joined.structuredContent as { activeScopes: Array<{ scope: string }> };
+      assert.ok(membership.activeScopes.some(item => item.scope === (id === "beta" ? "platform" : "coordination")));
     }
-    const sent = await client.callTool({ name: "send_message", arguments: { agent_id: "alpha", topic: "repo:e2e", kind: "question", body: "Ready?" } });
+    const sent = await client.callTool({ name: "send_message", arguments: { agent_id: "alpha", topic: "repo:e2e", kind: "question", body: "Ready?", target_scope: "platform" } });
     assert.equal(sent.isError, undefined);
     const inbox = await client.callTool({ name: "check_inbox", arguments: { agent_id: "beta" } });
-    const result = inbox.structuredContent as { messages: Array<{ body: string }> };
+    const result = inbox.structuredContent as { messages: Array<{ body: string; targetScope: string }> };
     assert.equal(result.messages[0]?.body, "Ready?");
+    assert.equal(result.messages[0]?.targetScope, "platform");
+
+    const direct = await client.callTool({ name: "send_message", arguments: { agent_id: "beta", topic: "repo:e2e", kind: "answer", body: "Yes", target_agent_id: "alpha" } });
+    assert.equal((direct.structuredContent as { recipients: number }).recipients, 1);
 
   } finally {
     await client.close();

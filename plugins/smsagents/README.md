@@ -15,7 +15,17 @@ Separate agent sessions cannot normally exchange concise findings or blockers. S
 - `ack_messages`
 - `topic_status`
 
-Messages are persisted in SQLite using WAL mode. Senders do not receive their own messages, and optional dedupe keys make retries idempotent.
+Agents can advertise one or more responsibility scopes when they join, such as `platform`, `game`, or `release`. `join_topic` returns the current membership and active scopes immediately, and `topic_status` provides the same discovery view later.
+
+Set `target_scope` to deliver only to topic members advertising that scope, or `target_agent_id` to deliver to one specific topic member. Omitting both broadcasts to the topic, which is deliberately considered noisy and should be reserved for genuinely cross-functional information: changes in direction, topic-wide decisions, or sudden shared incidents such as outages. The two targets are mutually exclusive, and neither can bypass topic membership. Messages are persisted in SQLite using WAL mode. Senders do not receive their own messages, and optional dedupe keys make retries idempotent.
+
+For example:
+
+```json
+{ "agent_id": "agent-a", "topic": "repo:work", "scopes": ["platform", "release"] }
+{ "agent_id": "agent-b", "topic": "repo:work", "body": "Can you verify the manifest?", "kind": "question", "target_scope": "platform" }
+{ "agent_id": "agent-a", "topic": "repo:work", "body": "Verified.", "kind": "answer", "target_agent_id": "agent-b", "reply_to": "msg_..." }
+```
 
 ## Runtime support
 
